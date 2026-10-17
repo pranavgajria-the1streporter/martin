@@ -1,0 +1,6 @@
+.DS_Store
+# Built app and Swift build output (rebuild with app/build.sh)
+app/.build/
+app/Martin.app/
+# Packaged copies of files already here
+*.zip

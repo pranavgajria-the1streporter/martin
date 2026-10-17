@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Martin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;800&family=Bricolage+Grotesque:opsz,wght@12..96,800&display=swap">
+<style>
+/* Martin's card, as decided in builds/martin/look.md. The app's window starts at the bottom of the menu bar. */
+:root {
+  --body: "Inter", -apple-system, "Helvetica Neue", sans-serif;
+  --display: "Bricolage Grotesque", -apple-system, "Helvetica Neue", sans-serif;
+  --out: cubic-bezier(0.23, 1, 0.32, 1);
+  --paper: #F3EFE6;
+  --pen: #111111;
+  --pencil: #5A564F;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; overflow: hidden; height: 100%; font-family: var(--body); -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; cursor: default; }
+button { font: inherit; }
+.card { position: absolute; top: 6px; left: calc(50% - 125px); width: 250px; padding: 10px 12px 10px 8px; border-radius: 16px; background: var(--paper); color: var(--pen); box-shadow: 0 10px 26px rgba(0,0,0,.32), 0 0 0 0.5px rgba(0,0,0,.12); display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 8px; align-items: center; overflow: hidden; visibility: hidden; }
+.text { min-width: 0; }
+.h { display: block; font-family: var(--display); font-weight: 800; font-size: 17px; line-height: 1.15; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s { display: block; font-size: 11.5px; line-height: 1.4; color: var(--pencil); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.count { font-weight: 800; font-size: 24px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; overflow: hidden; padding: 2px 0; }
+.count .num { display: inline-block; }
+.btns { grid-column: 1 / -1; display: flex; gap: 5px; }
+.btns[hidden], .count[hidden] { display: none !important; }
+.btn { font-size: 11px; font-weight: 500; line-height: 1; padding: 6px 9px; border-radius: 999px; cursor: pointer; background: none; color: var(--pen); border: 1px solid var(--pen); white-space: nowrap; transition: transform 160ms var(--out); }
+.btn.main { background: var(--pen); color: var(--paper); }
+.btn:active { transform: scale(0.97); }
+.martin { width: 36px; height: 54px; display: block; overflow: visible; }
+.martin .j { transform-box: view-box; }
+.martin line, .martin circle, .martin path { fill: none; stroke: var(--pen); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+.martin .eye, .martin .fist { fill: var(--pen); stroke: none; }
+.martin .thumbline { stroke-width: 3.2; }
+.martin .mouth { stroke-width: 2.8; }
+</style>
+</head>
+<body>
+<div class="card"></div>
+<script>
+window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.martin.postMessage({ type: 'log', text: 'error: ' + m + ' at ' + line }); } catch (e) {} };
+(function () {
+  var OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var hasLinear = window.CSS && CSS.supports && CSS.supports('animation-timing-function', 'linear(0, 1)');
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function settled(a) { return a ? a.finished.catch(function () {}) : Promise.resolve(); }
+  function rot(d) { return 'rotate(' + (+d).toFixed(2) + 'deg)'; }
+
+  /* Springs, sampled into a linear() curve */
+  function spring(k, c) {
+    var x = 0, v = 0, dt = 1 / 240, t = 0, pts = [0];
+    while (t < 2.5) {
+      v += (-k * (x - 1) - c * v) * dt; x += v * dt; t += dt; pts.push(x);
+      if (t > 0.15 && Math.abs(x - 1) < 0.002 && Math.abs(v) < 0.02) break;
+    }
+    var step = Math.max(1, Math.floor(pts.length / 60)), out = [];
+    for (var i = 0; i < pts.length; i += step) out.push(+pts[i].toFixed(4));
+    out.push(1);
+    return hasLinear ? { easing: 'linear(' + out.join(', ') + ')', duration: Math.round(t * 1000) } : { easing: OUT, duration: Math.min(450, Math.round(t * 1000)) };
+  }
+  var LOOSE = spring(150, 12);   /* limbs: about 15% overshoot */
+  var SOFT = spring(260, 24);    /* the card: a small settle */
+  var BOUNCE = spring(320, 14);  /* landings and hops */
+
+  var MOUTH = {
+    smile: 'M43.5 31 Q50 37.5 56.5 31',
+    happy: 'M42.5 30 Q50 41 57.5 30',
+    calm:  'M45.5 32 Q50 35.5 54.5 32',
+    flat:  'M45 33 Q50 33 55 33',
+    think: 'M45 33.5 Q50 31 55 32.5',
+    sad:   'M44.5 35.5 Q50 29.5 55.5 35.5',
+    oh:    'M48 32.5 A2 2 0 1 0 52 32.5 A2 2 0 1 0 48 32.5'
+  };
+
+  var COPY = {
+    posture: [['Shoulders back.', 'Ten seconds. I’ll wait.'], ['Uncurl a bit.', 'You’re not a croissant.'], ['Chin in.', 'Like a proud pigeon.'], ['Posture check.', 'Doing great. Mostly.']],
+    situp:   [['Sit up tall.', 'Like someone said your name.'], ['Hey. Spine.', 'I’m not mad, just noticing.'], ['Up you come.', 'Feet flat, sit back.'], ['Spine check.', '25 minutes of leaning in.']],
+    stretch: [['Neck rolls.', 'Slow circles with me.'], ['Roll with me.', 'Ear down, then round.']],
+    walk:    [['Walk with me?', 'Window and back.'], ['Legs, remember?', 'They miss you.'], ['Lap time.', 'Kitchen, water, back.']]
+  };
+  var DONE = [['thumb', 'Nice one.'], ['jump', 'Look at you!'], ['cheer', 'Beautiful.']];
+  var SKIP = [['sad', 'Oh. Okay.', 'I’ll ask again in '], ['scratch', 'Hm. Later then?', 'Next one in '], ['shrug', 'Fair enough.', 'Next one in ']];
+  var SNOOZE = [['Back in 10.', 'I’ll be right here.'], ['Fine. 10 minutes.', 'I’m counting.']];
+  var NAMES = { posture: ['posture check', 'posture checks'], situp: ['sit-up', 'sit-ups'], stretch: ['stretch', 'stretches'], walk: ['walk', 'walks'] };
+  var NEXT = { stretch: 50, walk: 90 };
+  function plural(n, k) { return n + ' ' + NAMES[k][n === 1 ? 0 : 1]; }
+
+  /* The arms, for reaching a point with the hand */
+  var ARM = {
+    R: { sx: 50, sy: 54, ub: Math.atan2(19, 13), fb: Math.atan2(21, 4), L1: Math.hypot(13, 19), L2: Math.hypot(4, 21) },
+    L: { sx: 50, sy: 54, ub: Math.atan2(19, -13), fb: Math.atan2(21, -4), L1: Math.hypot(13, 19), L2: Math.hypot(4, 21) }
+  };
+  function norm(d) { while (d > 180) d -= 360; while (d <= -180) d += 360; return d; }
+  function reach(side, tx, ty, bend) {
+    var a = ARM[side], dx = tx - a.sx, dy = ty - a.sy;
+    var d = Math.min(Math.hypot(dx, dy), a.L1 + a.L2 - 0.01);
+    var B = Math.acos(Math.max(-1, Math.min(1, (a.L1 * a.L1 + d * d - a.L2 * a.L2) / (2 * a.L1 * d))));
+    var u = Math.atan2(dy, dx) + bend * B;
+    var ex = a.sx + a.L1 * Math.cos(u), ey = a.sy + a.L1 * Math.sin(u);
+    var f = Math.atan2(ty - ey, tx - ex);
+    var ru = norm((u - a.ub) * 180 / Math.PI), rf = norm((f - a.fb) * 180 / Math.PI - ru);
+    return { u: ru, f: rf, total: ru + rf };
+  }
+
+  function rig() {
+    return '<svg viewBox="0 0 100 150" class="martin" aria-hidden="true">' +
+      '<g class="j face" style="transform-origin:50px 75px"><g class="j move"><g class="j bob" style="transform-origin:50px 146px"><g class="j breath" style="transform-origin:50px 146px">' +
+        '<g class="j legL" style="transform-origin:50px 92px"><line x1="50" y1="92" x2="47" y2="119"/><g class="j shinL" style="transform-origin:47px 119px"><line x1="47" y1="119" x2="46" y2="146"/></g></g>' +
+        '<g class="j legR" style="transform-origin:50px 92px"><line x1="50" y1="92" x2="53" y2="119"/><g class="j shinR" style="transform-origin:53px 119px"><line x1="53" y1="119" x2="54" y2="146"/></g></g>' +
+        '<g class="j torso" style="transform-origin:50px 92px">' +
+          '<line x1="50" y1="92" x2="50" y2="40"/>' +
+          '<g class="j armL" style="transform-origin:50px 54px"><line x1="50" y1="54" x2="37" y2="73"/><g class="j foreL" style="transform-origin:37px 73px"><line x1="37" y1="73" x2="33" y2="94"/><circle class="fist fistL" cx="33" cy="94" r="3.3" style="opacity:0"/></g></g>' +
+          '<g class="j armR" style="transform-origin:50px 54px"><line x1="50" y1="54" x2="63" y2="73"/><g class="j foreR" style="transform-origin:63px 73px"><line x1="63" y1="73" x2="67" y2="94"/><circle class="fist fistR" cx="67" cy="94" r="3.8" style="opacity:0"/><g class="j thumb" style="transform-origin:67px 94px;opacity:0"><line class="thumbline" x1="65.6" y1="91.2" x2="65.6" y2="85.6"/></g></g></g>' +
+          '<g class="j head" style="transform-origin:50px 40px">' +
+            '<circle cx="50" cy="26" r="14"/>' +
+            '<g class="j feat" style="transform-origin:50px 26px">' +
+              '<g class="j eyes" style="transform-origin:50px 25px"><g class="j lid" style="transform-origin:50px 25px"><circle class="eye" cx="45.5" cy="25" r="1.9"/><circle class="eye" cx="54.5" cy="25" r="1.9"/></g></g>' +
+              '<path class="mouth" d="' + MOUTH.smile + '"/>' +
+            '</g>' +
+          '</g>' +
+        '</g>' +
+      '</g></g></g></g></svg>';
+  }
+
+  /* Each part lands a beat after the part it hangs from */
+  var LAG = { torso: 0, legL: 0, legR: 0, armL: 35, armR: 35, shinL: 30, shinR: 30, head: 45, foreL: 70, foreR: 70, feat: 70, eyes: 80, thumb: 90 };
+
+  function Martin(host) {
+    host.insertAdjacentHTML('afterbegin', rig());
+    var svg = this.svg = host.querySelector('svg'), p = this.p = {};
+    ['face', 'move', 'bob', 'breath', 'legL', 'shinL', 'legR', 'shinR', 'torso', 'armL', 'foreL', 'armR', 'foreR', 'thumb', 'head', 'feat', 'eyes', 'lid'].forEach(function (k) { p[k] = svg.querySelector('.' + k); });
+    this.fistL = svg.querySelector('.fistL'); this.fistR = svg.querySelector('.fistR');
+    this.mouth = svg.querySelector('.mouth');
+    this.loops = [];
+    this.closed = false;
+    this.blink();
+    if (!reduce) p.breath.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(1.025)' }], { duration: 1700, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' });
+  }
+  Martin.prototype.face = function (n) { this.mouth.setAttribute('d', MOUTH[n]); };
+  Martin.prototype.to = function (k, transform, spec, delay) {
+    var el = this.p[k], loops = this.loops;
+    el.getAnimations().forEach(function (a) {
+      if (loops.indexOf(a) !== -1) return;
+      try { a.commitStyles(); } catch (e) {}
+      a.cancel();
+    });
+    spec = typeof spec === 'number' ? { duration: spec, easing: OUT } : (spec || LOOSE);
+    var a = el.animate([{ transform: transform }], { duration: reduce ? 0 : spec.duration, easing: spec.easing, delay: reduce ? 0 : (delay || 0), fill: 'forwards' });
+    a.finished.then(function () { try { a.commitStyles(); } catch (e) {} a.cancel(); }).catch(function () {});
+    return a;
+  };
+  Martin.prototype.pose = function (map, spec, lag) {
+    var self = this, all = [];
+    lag = lag == null ? 1 : lag;
+    Object.keys(map).forEach(function (k) {
+      var v = map[k];
+      all.push(settled(self.to(k, typeof v === 'number' ? rot(v) : v, spec, (LAG[k] || 0) * lag)));
+    });
+    return Promise.all(all);
+  };
+  Martin.prototype.look = function (kind, spec) {
+    var t = { open: 'none', closed: 'scaleY(0.12)', half: 'scaleY(0.55)', up: 'translate(1.6px,-2.2px)', down: 'translate(0px,1.6px) scaleY(0.7)', side: 'translate(2.4px,0px)' }[kind];
+    this.closed = kind === 'closed';
+    return this.to('eyes', t, spec || 180);
+  };
+  Martin.prototype.blink = function () {
+    var self = this;
+    setTimeout(function () {
+      if (!self.closed && !reduce) self.p.lid.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.1)' }, { transform: 'scaleY(1)' }], { duration: 150, easing: 'ease' });
+      self.blink();
+    }, 2200 + Math.random() * 3000);
+  };
+  Martin.prototype.loop = function (k, frames, dur, opts) {
+    if (reduce) return;
+    var o = { duration: dur, iterations: Infinity, easing: 'linear' };
+    if (opts) for (var key in opts) o[key] = opts[key];
+    this.loops.push(this.p[k].animate(frames, o));
+  };
+  Martin.prototype.stop = function () { this.loops.forEach(function (a) { a.cancel(); }); this.loops = []; };
+  Martin.prototype.fists = function (l, r, thumb) {
+    var spec = { duration: reduce ? 0 : 140, easing: OUT, fill: 'forwards' };
+    this.fistL.animate([{ opacity: l ? 1 : 0 }], spec);
+    this.fistR.animate([{ opacity: r ? 1 : 0 }], spec);
+    this.p.thumb.animate([{ opacity: thumb ? 1 : 0 }], spec);
+  };
+  Martin.prototype.reset = function () {
+    this.stop();
+    var p = this.p;
+    Object.keys(p).forEach(function (k) {
+      if (k === 'lid' || k === 'breath') return;
+      p[k].getAnimations().forEach(function (a) { a.cancel(); });
+      p[k].style.transform = '';
+    });
+    [this.fistL, this.fistR, this.p.thumb].forEach(function (el) { el.getAnimations().forEach(function (a) { a.cancel(); }); el.style.opacity = 0; });
+    this.closed = false;
+    this.face('smile');
+  };
+  Martin.prototype.rest = function (spec) {
+    return this.pose({ move: 'none', bob: 'none', feat: 'none', legL: 0, shinL: 0, legR: 0, shinR: 0, torso: 0, armL: 0, foreL: 0, armR: 0, foreR: 0, head: 0 }, spec || 220, 0.5);
+  };
+
+  /* A side-on walk: thighs swing forward and back, the back knee bends, the body bobs twice per step */
+  Martin.prototype.walk = function (cycle) {
+    if (reduce) return;
+    cycle = cycle || 920;
+    var N = 24, TAU = Math.PI * 2;
+    function fr(fn) { var f = []; for (var i = 0; i <= N; i++) f.push({ transform: fn(i / N) }); return f; }
+    function knee(ph) { ph = ((ph % 1) + 1) % 1; return ph > 0.5 ? 48 * Math.sin(TAU * (ph - 0.5)) : 4 * Math.sin(TAU * ph); }
+    this.to('foreL', rot(-6), 200); this.to('foreR', rot(-36), 200); this.to('feat', 'translateX(2.6px)', 200);
+    this.loop('legL', fr(function (p) { return rot(-22 * Math.cos(TAU * p)); }), cycle);
+    this.loop('shinL', fr(function (p) { return rot(knee(p)); }), cycle);
+    this.loop('legR', fr(function (p) { return rot(-22 * Math.cos(TAU * (p + 0.5))); }), cycle);
+    this.loop('shinR', fr(function (p) { return rot(knee(p + 0.5)); }), cycle);
+    this.loop('armL', fr(function (p) { return rot(-34 + 20 * Math.cos(TAU * p)); }), cycle);
+    this.loop('armR', fr(function (p) { return rot(34 - 20 * Math.cos(TAU * p)); }), cycle);
+    this.loop('bob', fr(function (p) { return 'translateY(' + (1.8 * Math.cos(2 * TAU * p)).toFixed(2) + 'px)'; }), cycle);
+    this.loop('torso', fr(function (p) { return rot(4 + 1.2 * Math.cos(2 * TAU * p)); }), cycle);
+    this.loop('head', fr(function (p) { return rot(-2 * Math.cos(2 * TAU * p + 0.6)); }), cycle);
+  };
+
+  Martin.prototype.prep = function (nudge) {
+    this.reset();
+    if (nudge === 'situp') {
+      this.pose({ torso: 12, head: 14, armL: -10, armR: -10 }, 0, 0);
+      this.look('half', 0);
+      this.face('flat');
+    }
+  };
+  Martin.prototype.hello = async function () {
+    await settled(this.to('bob', 'translateY(-5px)', 140));
+    await settled(this.to('bob', 'none', BOUNCE));
+  };
+  Martin.prototype.act = async function (nudge) {
+    if (nudge === 'posture') {
+      this.face('calm');
+      await this.pose({ torso: -4, head: -6, armL: 8, armR: -8 });
+      this.face('happy');
+      await wait(900);
+      this.pose({ torso: 0, head: 0, armL: 0, armR: 0 });
+      await wait(300);
+      this.face('smile');
+    } else if (nudge === 'situp') {
+      await wait(800);
+      this.face('oh');
+      this.look('open');
+      await settled(this.to('bob', 'translateY(3px)', 120));
+      this.pose({ torso: -3, head: -5, armL: 0, armR: 0 });
+      await settled(this.to('bob', 'translateY(-6px)', 160));
+      await settled(this.to('bob', 'none', BOUNCE));
+      this.face('happy');
+      this.pose({ torso: 0, head: 0 });
+      await wait(900);
+      this.face('smile');
+    } else if (nudge === 'stretch') {
+      this.face('calm');
+      this.look('closed', 220);
+      if (reduce) { this.pose({ head: -12 }, 0); return; }
+      this.loop('head', [{ transform: 'rotate(0deg)' }, { transform: 'rotate(-22deg)' }, { transform: 'rotate(0deg)' }, { transform: 'rotate(22deg)' }, { transform: 'rotate(0deg)' }], 4400, { easing: 'ease-in-out' });
+      this.loop('torso', [{ transform: 'rotate(0deg)' }, { transform: 'rotate(-2deg)' }, { transform: 'rotate(0deg)' }, { transform: 'rotate(2deg)' }, { transform: 'rotate(0deg)' }], 4400, { easing: 'ease-in-out', delay: -300 });
+    } else if (nudge === 'walk') {
+      this.face('think');
+      this.look('up');
+      var chin = reach('R', 56, 38, 1);
+      await this.pose({ head: -6, armR: chin.u, foreR: chin.f });
+      await wait(700);
+      this.look('open');
+      this.face('happy');
+      await this.pose({ head: 0, armR: 0, foreR: 0 }, 200);
+      this.walk();
+    }
+  };
+
+  /* Done: three ways to celebrate */
+  Martin.prototype.cheer = async function (kind) {
+    this.stop();
+    this.look('open');
+    this.face('happy');
+    await this.rest(160);
+    if (kind === 'thumb') {
+      var r = reach('R', 80, 47, 1);
+      this.to('thumb', rot(-r.total), 0);
+      this.fists(false, true, true);
+      await this.pose({ armR: r.u, foreR: r.f, head: 6 });
+      await settled(this.to('bob', 'translateY(-4px)', 140));
+      await settled(this.to('bob', 'none', BOUNCE));
+    } else if (kind === 'jump') {
+      var up = reach('L', 27, 12, -1), upR = reach('R', 73, 12, 1);
+      await this.pose({ bob: 'translateY(6px)', armL: -16, armR: 16, foreL: 10, foreR: -10, legL: 12, legR: -12, shinL: -22, shinR: 22, head: 5 }, 170, 0);
+      this.fists(true, true, false);
+      this.pose({ armL: up.u, foreL: up.f, armR: upR.u, foreR: upR.f, legL: 0, legR: 0, shinL: 0, shinR: 0, head: -4 }, 200, 0.4);
+      await settled(this.to('bob', 'translateY(-26px)', { duration: 280, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' }));
+      this.pose({ legL: 14, shinL: -28, legR: -14, shinR: 28 }, 150, 0);
+      await wait(reduce ? 0 : 70);
+      await settled(this.to('bob', 'translateY(0px)', { duration: 240, easing: 'cubic-bezier(0.55, 0, 0.9, 0.5)' }));
+      this.pose({ legL: 0, shinL: 0, legR: 0, shinR: 0, head: 0 }, BOUNCE, 0);
+      this.p.breath.animate([{ transform: 'scaleY(0.86)' }, { transform: 'scaleY(1)' }], { duration: reduce ? 0 : BOUNCE.duration, easing: BOUNCE.easing, composite: 'add' });
+    } else {
+      var l = reach('L', 30, 22, -1), rr = reach('R', 70, 22, 1);
+      this.fists(true, true, false);
+      await this.pose({ armL: l.u, foreL: l.f, armR: rr.u, foreR: rr.f });
+      for (var i = 0; i < 2; i++) {
+        await settled(this.to('bob', 'translateY(-4px)', 130));
+        await settled(this.to('bob', 'none', BOUNCE));
+      }
+    }
+  };
+  /* Skip: sad, a head scratch, or a shrug */
+  Martin.prototype.skip = async function (kind) {
+    this.stop();
+    this.look('open');
+    await this.rest(160);
+    if (kind === 'sad') {
+      this.face('sad');
+      this.look('down', 300);
+      this.to('feat', 'translateY(1.5px)', 300);
+      await this.pose({ armL: -8, armR: 8, head: 6, bob: 'translateY(2px)' }, { duration: 520, easing: 'cubic-bezier(0.45, 0, 0.2, 1)' });
+      await settled(this.to('bob', 'translateY(0.5px)', 300));
+      await settled(this.to('bob', 'translateY(2.5px)', { duration: 600, easing: 'ease-in-out' }));
+    } else if (kind === 'scratch') {
+      this.face('think');
+      this.look('up');
+      var s = reach('R', 63, 15, 1);
+      await this.pose({ armR: s.u, foreR: s.f, head: -8 });
+      if (!reduce) {
+        var a = this.p.foreR.animate([{ transform: rot(s.f) }, { transform: rot(s.f - 9) }, { transform: rot(s.f) }], { duration: 190, iterations: 5, easing: 'ease-in-out' });
+        await settled(a);
+      }
+    } else {
+      this.face('flat');
+      await this.pose({ armL: 20, foreL: 80, armR: -20, foreR: -80, head: 8 }, LOOSE);
+      await settled(this.to('bob', 'translateY(-2px)', 120));
+      await settled(this.to('bob', 'none', BOUNCE));
+    }
+  };
+  /* Snooze: turn to the nearest edge and walk out */
+  Martin.prototype.leave = async function () {
+    this.stop();
+    this.look('open');
+    this.face('smile');
+    await this.rest(140);
+    this.to('face', 'scaleX(-1)', 120);
+    await wait(120);
+    this.walk(820);
+    await settled(this.to('move', 'translateX(130px)', { duration: 1100, easing: 'cubic-bezier(0.4, 0, 0.9, 1)' }));
+    this.stop();
+  };
+
+
+  /* Talking to the app */
+  function post(m) { try { window.webkit.messageHandlers.martin.postMessage(m); } catch (e) {} }
+
+  var LATE_WALK = [['Up for a minute?', 'Too late for a walk.'], ['Stand with me.', 'One minute on your feet.']];
+  var turn = { posture: 0, situp: 0, stretch: 0, walk: 0, late: 0, done: 0, skip: 0, snooze: 0 };
+
+  var card = document.querySelector('.card');
+  card.innerHTML =
+    '<div class="text"><span class="h"></span><span class="s"></span></div>' +
+    '<span class="count" hidden><span class="num"></span></span>' +
+    '<div class="btns" hidden>' +
+      '<button class="btn main" data-do="done" type="button">Done</button>' +
+      '<button class="btn" data-do="snooze" type="button">Snooze 10 min</button>' +
+      '<button class="btn" data-do="skip" type="button">Skip</button>' +
+    '</div>';
+  var martin = new Martin(card);
+  var H = card.querySelector('.h'), S = card.querySelector('.s'), COUNT = card.querySelector('.count'), NUM = card.querySelector('.num'), BTNS = card.querySelector('.btns');
+  var state = { open: false, token: 0, timers: [], nudge: null, counts: {} };
+
+  function clear() { state.timers.forEach(function (t) { clearTimeout(t); clearInterval(t); }); state.timers = []; }
+  function say(h, s) {
+    H.textContent = h; S.textContent = s;
+    if (!reduce) [H, S].forEach(function (el, i) { el.animate([{ opacity: 0, transform: 'translateY(3px)' }, { opacity: 1, transform: 'none' }], { duration: 200, delay: i * 50, easing: OUT, fill: 'backwards' }); });
+  }
+  function setCount(n, tick) {
+    NUM.textContent = String(n);
+    if (tick && !reduce) NUM.animate([{ transform: 'translateY(0.55em)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: BOUNCE.duration, easing: BOUNCE.easing });
+  }
+  async function enter() {
+    card.getAnimations().forEach(function (a) { a.cancel(); });
+    card.style.visibility = 'visible';
+    var h = card.offsetHeight + 12;
+    await settled(card.animate([{ transform: 'translateY(-' + h + 'px)' }, { transform: 'none' }], { duration: reduce ? 0 : SOFT.duration, easing: SOFT.easing }));
+  }
+  async function close() {
+    clear();
+    if (!state.open) return;
+    state.open = false;
+    var h = card.offsetHeight + 12;
+    await settled(card.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-' + h + 'px)', opacity: 0.6 }], { duration: reduce ? 100 : 240, easing: OUT, fill: 'forwards' }));
+    if (!state.open) { card.style.visibility = 'hidden'; post({ type: 'closed' }); }
+  }
+
+  async function play(nudge, opts) {
+    opts = opts || {};
+    var t = ++state.token;
+    if (state.open) { await close(); if (t !== state.token) return; }
+    state.nudge = nudge;
+    state.counts = opts.counts || {};
+    var list = nudge === 'walk' && opts.late ? LATE_WALK : COPY[nudge];
+    var key = nudge === 'walk' && opts.late ? 'late' : nudge;
+    var c = list[turn[key]++ % list.length];
+    H.textContent = c[0]; S.textContent = c[1];
+    var held = nudge === 'stretch' || nudge === 'walk';
+    var secs = { stretch: 30, walk: 60 }[nudge];
+    BTNS.hidden = !held;
+    COUNT.hidden = !held;
+    if (held) setCount(secs);
+    martin.prep(nudge);
+    state.open = true;
+    await enter();
+    if (t !== state.token) return;
+    if (nudge !== 'situp') await martin.hello();
+    if (t !== state.token) return;
+    martin.act(nudge);
+    if (!held) {
+      state.timers.push(setTimeout(function () {
+        if (t !== state.token) return;
+        post({ type: 'counted', nudge: nudge });
+        close();
+      }, 8000));
+    } else {
+      var left = secs;
+      state.timers.push(setInterval(function () {
+        if (t !== state.token) return;
+        left--; setCount(left, true);
+        if (left <= 0) finish('done');
+      }, 1000));
+    }
+  }
+
+  async function finish(how) {
+    if (!state.open) return;
+    clear();
+    var t = ++state.token, n = state.nudge;
+    BTNS.hidden = true;
+    COUNT.hidden = true;
+    post({ type: how, nudge: n });
+    if (how === 'done') {
+      var v = DONE[turn.done++ % DONE.length];
+      var count = (state.counts[n] || 0) + 1;
+      say(v[1], plural(count, n) + ' today.');
+      await martin.cheer(v[0]);
+      await wait(1800);
+    } else if (how === 'snooze') {
+      var sv = SNOOZE[turn.snooze++ % SNOOZE.length];
+      say(sv[0], sv[1]);
+      await martin.leave();
+      await wait(350);
+    } else {
+      var k = SKIP[turn.skip++ % SKIP.length];
+      say(k[1], k[2] + NEXT[n] + ' min.');
+      await martin.skip(k[0]);
+      await wait(1500);
+    }
+    if (t === state.token) close();
+  }
+
+  BTNS.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-do]');
+    if (b) finish(b.getAttribute('data-do'));
+  });
+
+  window.martin = {
+    play: play,
+    dismiss: function () { if (state.open) { ++state.token; close(); } },
+    setWidth: function (w) { card.style.width = w + 'px'; card.style.left = 'calc(50% - ' + (w / 2) + 'px)'; }
+  };
+  post({ type: 'ready' });
+})();
+</script>
+</body>
+</html>
