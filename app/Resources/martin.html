@@ -47,7 +47,14 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var hasLinear = window.CSS && CSS.supports && CSS.supports('animation-timing-function', 'linear(0, 1)');
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-  function settled(a) { return a ? a.finished.catch(function () {}) : Promise.resolve(); }
+  // Resolves when the animation ends, or shortly after it should have. If macOS stops drawing the window,
+  // animations stop advancing and `finished` never resolves, so the deadline keeps the card from hanging.
+  function settled(a) {
+    if (!a) return Promise.resolve();
+    var end = 0;
+    try { end = a.effect.getComputedTiming().endTime; } catch (e) {}
+    return Promise.race([a.finished.catch(function () {}), wait((isFinite(end) ? end : 0) + 500)]);
+  }
   function rot(d) { return 'rotate(' + (+d).toFixed(2) + 'deg)'; }
 
   /* Springs, sampled into a linear() curve */
@@ -367,7 +374,7 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     '</div>';
   var martin = new Martin(card);
   var H = card.querySelector('.h'), S = card.querySelector('.s'), COUNT = card.querySelector('.count'), NUM = card.querySelector('.num'), BTNS = card.querySelector('.btns');
-  var state = { open: false, token: 0, timers: [], nudge: null, counts: {} };
+  var state = { open: false, token: 0, timers: [], nudge: null, counts: {}, session: 0 };
 
   function clear() { state.timers.forEach(function (t) { clearTimeout(t); clearInterval(t); }); state.timers = []; }
   function say(h, s) {
@@ -384,19 +391,22 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     var h = card.offsetHeight + 12;
     await settled(card.animate([{ transform: 'translateY(-' + h + 'px)' }, { transform: 'none' }], { duration: reduce ? 0 : SOFT.duration, easing: SOFT.easing }));
   }
-  async function close() {
+  // `silent` closes an old card to make room for a new one, without telling the app it closed.
+  async function close(silent) {
     clear();
     if (!state.open) return;
     state.open = false;
+    var session = state.session;
     var h = card.offsetHeight + 12;
     await settled(card.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-' + h + 'px)', opacity: 0.6 }], { duration: reduce ? 100 : 240, easing: OUT, fill: 'forwards' }));
-    if (!state.open) { card.style.visibility = 'hidden'; post({ type: 'closed' }); }
+    if (!state.open) { card.style.visibility = 'hidden'; if (!silent) post({ type: 'closed', session: session }); }
   }
 
   async function play(nudge, opts) {
     opts = opts || {};
     var t = ++state.token;
-    if (state.open) { await close(); if (t !== state.token) return; }
+    if (state.open) { await close(true); if (t !== state.token) return; }
+    state.session = opts.session || 0;
     state.nudge = nudge;
     state.counts = opts.counts || {};
     var list = nudge === 'walk' && opts.late ? LATE_WALK : COPY[nudge];
@@ -412,13 +422,14 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     state.open = true;
     await enter();
     if (t !== state.token) return;
+    post({ type: 'shown', session: state.session });
     if (nudge !== 'situp') await martin.hello();
     if (t !== state.token) return;
     martin.act(nudge);
     if (!held) {
       state.timers.push(setTimeout(function () {
         if (t !== state.token) return;
-        post({ type: 'counted', nudge: nudge });
+        post({ type: 'counted', nudge: nudge, session: state.session });
         close();
       }, 8000));
     } else {
@@ -437,7 +448,7 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     var t = ++state.token, n = state.nudge;
     BTNS.hidden = true;
     COUNT.hidden = true;
-    post({ type: how, nudge: n });
+    post({ type: how, nudge: n, session: state.session });
     if (how === 'done') {
       var v = DONE[turn.done++ % DONE.length];
       var count = (state.counts[n] || 0) + 1;

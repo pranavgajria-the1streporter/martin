@@ -12,19 +12,22 @@ final class CardPanel: NSPanel {
 }
 
 /// A clear window just below the menu bar, under the notch, that holds Martin's card.
-/// It is only on screen while Martin has something to say.
+/// The window stays on screen all the time and ignores the mouse while Martin has nothing to say:
+/// macOS stops drawing a hidden window, and a card whose animations never advance sits stuck under the menu bar.
 @MainActor
 final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private let panel: CardPanel
-    private let web: ClickThroughWebView
+    private var web: ClickThroughWebView!
     private var loaded = false
     private var queued: [String] = []
     var onMessage: (([String: Any]) -> Void)?
 
+    /// True while macOS is drawing the window. Written to the log, so a stalled card shows its cause.
+    var isDrawn: Bool { panel.isVisible && panel.occlusionState.contains(.visible) }
+
     override init() {
         let frame = NSRect(x: 0, y: 0, width: 320, height: 170)
         panel = CardPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        web = ClickThroughWebView(frame: frame, configuration: WKWebViewConfiguration())
         super.init()
 
         panel.isOpaque = false
@@ -35,24 +38,46 @@ final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
+        panel.ignoresMouseEvents = true
 
-        web.setValue(false, forKey: "drawsBackground")
-        web.underPageBackgroundColor = .clear
-        web.autoresizingMask = [.width, .height]
-        web.navigationDelegate = self
-        web.configuration.userContentController.add(self, name: "martin")
+        web = makeWeb()
         panel.contentView = web
 
-        if let url = Bundle.main.url(forResource: "martin", withExtension: "html") {
-            web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.parkIfIdle() }
         }
     }
 
-    func show(_ nudge: Nudge, late: Bool, counts: [String: Int]) {
+    private func makeWeb() -> ClickThroughWebView {
+        let config = WKWebViewConfiguration()
+        let view = ClickThroughWebView(frame: NSRect(origin: .zero, size: panel.frame.size), configuration: config)
+        view.setValue(false, forKey: "drawsBackground")
+        view.underPageBackgroundColor = .clear
+        view.autoresizingMask = [.width, .height]
+        view.navigationDelegate = self
+        config.userContentController.add(self, name: "martin")
+        if let url = Bundle.main.url(forResource: "martin", withExtension: "html") {
+            view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        }
+        return view
+    }
+
+    /// Throws away the web view and loads the page again. Used when a card has not appeared.
+    func rebuild() {
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "martin")
+        web.navigationDelegate = nil
+        loaded = false
+        queued.removeAll()
+        web = makeWeb()
+        panel.contentView = web
+    }
+
+    func show(_ nudge: Nudge, late: Bool, counts: [String: Int], session: Int) {
         place()
+        panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
         let countsJSON = counts.map { "\"\($0.key)\": \($0.value)" }.joined(separator: ", ")
-        run("martin.play('\(nudge.rawValue)', { late: \(late), counts: { \(countsJSON) } })")
+        run("martin.play('\(nudge.rawValue)', { late: \(late), session: \(session), counts: { \(countsJSON) } })")
     }
 
     /// For testing: saves a picture of the card (open Martin.app --args --nudge walk --snapshot /tmp/martin).
@@ -67,7 +92,17 @@ final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func dismiss() { run("martin.dismiss()") }
 
-    func hide() { panel.orderOut(nil) }
+    /// Between cards: still on screen so macOS keeps drawing it, but clear and click-through.
+    func hide() {
+        panel.ignoresMouseEvents = true
+        panel.orderFrontRegardless()
+    }
+
+    func parkIfIdle() {
+        guard panel.ignoresMouseEvents else { return }
+        place()
+        panel.orderFrontRegardless()
+    }
 
     /// Centre under the notch, starting at the bottom of the menu bar.
     /// The card is the notch plus 30 points on each end.
@@ -91,9 +126,16 @@ final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView === web else { return }
         loaded = true
         queued.forEach { web.evaluateJavaScript($0, completionHandler: nil) }
         queued.removeAll()
+    }
+
+    /// macOS can end the page's process while Martin sits idle. Load it again so the next card has a page to run in.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Log.write("card: web process ended, rebuilding")
+        rebuild()
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {

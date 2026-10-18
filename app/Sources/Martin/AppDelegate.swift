@@ -64,6 +64,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var cameraOn = false
     private var micOn = false
     private var ticks = 0
+    /// Each card gets a number. Messages from an older card are ignored, so a late "closed" can't hide a new card.
+    private var session = 0
+    private var shown = false
+    private var firedAt = Date()
+    private var retryAfter: Date?
+
+    /// How long a card gets to confirm it is on screen before Martin rebuilds it.
+    private let confirmSeconds: TimeInterval = 2.5
 
     /// A break: this long without touching the Mac resets every timer.
     private let breakSeconds: TimeInterval = 5 * 60
@@ -92,6 +100,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
 
         card.onMessage = { [weak self] message in self?.handle(message) }
+        card.parkIfIdle()
+
+        // For testing a running Martin from Terminal: notifyutil -p martin.test.stretch
+        for n in Nudge.allCases {
+            DistributedNotificationCenter.default().addObserver(forName: Notification.Name("martin.test.\(n.rawValue)"), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.fire(n) }
+            }
+        }
 
         if let url = Bundle.main.url(forResource: "ding", withExtension: "wav") {
             ding = try? AVAudioPlayer(contentsOf: url)
@@ -161,11 +177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if ticks % 30 == 0 {
             let minutes = Nudge.allCases.map { "\($0.rawValue) \(Int(seated[$0, default: 0] / 60))m" }.joined(separator: ", ")
-            Log.write("alive: seated \(minutes), idle \(Int(idle))s")
+            Log.write("alive: seated \(minutes), idle \(Int(idle))s, card window drawn \(card.isDrawn ? "yes" : "NO")")
         }
 
         guard let due = [Nudge.walk, .stretch, .situp, .posture].first(where: { seated[$0, default: 0] >= interval($0) }) else { return }
         if showing != nil { return }
+        if let retry = retryAfter, now < retry { return }
         if let reason = quietReason() {
             if reason != lastBlock {
                 Log.write("due: \(due.rawValue), held back: \(reason)")
@@ -202,20 +219,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func fire(_ n: Nudge) {
         if showing != nil { card.dismiss() }
+        session += 1
         showing = n
+        shown = false
         shownAt = Date()
-        Log.write("fire: \(n.rawValue)")
-        n.covers.forEach { seated[$0] = 0 }
+        firedAt = Date()
+        retryAfter = nil
+        Log.write("fire: \(n.rawValue) (card window drawn: \(card.isDrawn ? "yes" : "NO"))")
+        present(n, attempt: 1)
+    }
+
+    /// Puts the card up and waits for it to say it arrived. If it doesn't, rebuild it once and try again.
+    /// The smaller timers start over only when the card has really shown, so a failed card doesn't cost a quiet 10 minutes.
+    private func present(_ n: Nudge, attempt: Int) {
         let hour = Calendar.current.component(.hour, from: Date())
         var counts: [String: Int] = [:]
         for k in Nudge.allCases { counts[k.rawValue] = tally()[k.rawValue] ?? 0 }
-        card.show(n, late: hour >= 22 || hour < 6, counts: counts)
+        let id = session
+        card.show(n, late: hour >= 22 || hour < 6, counts: counts, session: id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + confirmSeconds) { [weak self] in
+            guard let self, self.session == id, !self.shown else { return }
+            if attempt == 1 {
+                Log.write("stalled: \(n.rawValue) card did not appear (drawn: \(self.card.isDrawn ? "yes" : "NO")), rebuilding")
+                self.card.rebuild()
+                self.present(n, attempt: 2)
+            } else {
+                Log.write("gave up: \(n.rawValue) card did not appear after a rebuild, trying again in 1 minute")
+                self.showing = nil
+                self.card.hide()
+                self.retryAfter = Date().addingTimeInterval(60)
+            }
+        }
     }
 
     private func handle(_ message: [String: Any]) {
         let type = message["type"] as? String ?? ""
         let n = (message["nudge"] as? String).flatMap(Nudge.init(rawValue:))
+        let id = message["session"] as? Int ?? 0
+        // Only the card on screen now gets to say it arrived or closed.
+        if (type == "shown" || type == "closed") && id != session { return }
         switch type {
+        case "shown":
+            guard !shown, let current = showing else { return }
+            shown = true
+            current.covers.forEach { seated[$0] = 0 }
+            Log.write("shown: \(current.rawValue) in \(Int(Date().timeIntervalSince(firedAt) * 1000)) ms")
         case "counted":
             if let n { addToTally(n) }
         case "done":
