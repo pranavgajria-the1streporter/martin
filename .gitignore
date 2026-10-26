@@ -1,6 +1,12 @@
 .DS_Store
 # Built app and Swift build output (rebuild with app/build.sh)
-app/.build/
+.build/
 app/Martin.app/
+*.app/
+# Demo recorder scratch
+demo/frames/
+demo/.chrome-profile/
 # Packaged copies of files already here
 *.zip
+*.log
+.env*

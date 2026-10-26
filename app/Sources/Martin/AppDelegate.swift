@@ -50,6 +50,7 @@ enum Nudge: String, CaseIterable {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     let card = CardWindow()
+    private let settings = SettingsWindow()
     private var statusItem: NSStatusItem!
     private var seated: [Nudge: TimeInterval] = [:]
     private var showing: Nudge?
@@ -107,6 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DistributedNotificationCenter.default().addObserver(forName: Notification.Name("martin.test.\(n.rawValue)"), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.fire(n) }
             }
+        }
+
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("martin.settings"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.settings.show() }
         }
 
         if let url = Bundle.main.url(forResource: "ding", withExtension: "wav") {
@@ -180,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.write("alive: seated \(minutes), idle \(Int(idle))s, card window drawn \(card.isDrawn ? "yes" : "NO")")
         }
 
-        guard let due = [Nudge.walk, .stretch, .situp, .posture].first(where: { seated[$0, default: 0] >= interval($0) }) else { return }
+        guard let due = [Nudge.walk, .stretch, .situp, .posture].first(where: { isOn($0) && seated[$0, default: 0] >= interval($0) }) else { return }
         if showing != nil { return }
         if let retry = retryAfter, now < retry { return }
         if let reason = quietReason() {
@@ -203,6 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let minutes = defaults.integer(forKey: "minutes.\(n.rawValue)")
         return TimeInterval(minutes > 0 ? minutes : n.defaultMinutes) * 60
     }
+
+    /// Each action can be switched off in Settings. Off means it never comes up on its own; Nudge me now still works.
+    private func isOn(_ n: Nudge) -> Bool { !defaults.bool(forKey: "off.\(n.rawValue)") }
 
     private func quietReason() -> String? {
         if defaults.bool(forKey: "doNotDisturb") { return "Do not disturb is on" }
@@ -309,7 +317,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(info(done.isEmpty ? "Today: nothing yet" : "Today: " + done.joined(separator: ", ")))
         if let reason = quietReason() {
             menu.addItem(info(reason))
-        } else if let next = Nudge.allCases.min(by: { interval($0) - seated[$0, default: 0] < interval($1) - seated[$1, default: 0] }) {
+        } else if !Nudge.allCases.contains(where: isOn) {
+            menu.addItem(info("Every nudge is off in Settings"))
+        } else if let next = Nudge.allCases.filter(isOn).min(by: { interval($0) - seated[$0, default: 0] < interval($1) - seated[$1, default: 0] }) {
             let minutes = max(0, Int(((interval(next) - seated[next, default: 0]) / 60).rounded(.up)))
             menu.addItem(info("Next: \(next.name.lowercased()) in \(minutes) min"))
         }
@@ -337,8 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         now.submenu = sub
         menu.addItem(now)
-        let rhythm = Nudge.allCases.map { "\($0.name.lowercased()) \(Int(interval($0) / 60))" }.joined(separator: ", ")
-        menu.addItem(info("Every: " + rhythm + " min"))
+        menu.addItem(item("Settings…", #selector(openSettings), key: ","))
         menu.addItem(.separator())
 
         let login = item("Start at login", #selector(toggleLogin))
@@ -392,6 +401,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.runModal()
         }
     }
+
+    @objc private func openSettings() { settings.show() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 
