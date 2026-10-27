@@ -2,7 +2,7 @@ import CoreAudio
 import CoreGraphics
 import CoreMediaIO
 
-/// What the Mac can tell us about whether Pranav is at the desk or on a call.
+/// What the Mac can tell us about whether you are at the desk or on a call.
 /// None of these need a permission prompt.
 enum Quiet {
     /// Seconds since the last key press, click or mouse move.
