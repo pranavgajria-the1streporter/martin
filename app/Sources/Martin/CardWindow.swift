@@ -26,7 +26,7 @@ final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var isDrawn: Bool { panel.isVisible && panel.occlusionState.contains(.visible) }
 
     override init() {
-        let frame = NSRect(x: 0, y: 0, width: 320, height: 170)
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 200)
         panel = CardPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
 
@@ -72,12 +72,13 @@ final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         panel.contentView = web
     }
 
-    func show(_ nudge: Nudge, late: Bool, counts: [String: Int], session: Int) {
+    func show(_ nudge: Nudge, options: [String: Any]) {
         place()
         panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
-        let countsJSON = counts.map { "\"\($0.key)\": \($0.value)" }.joined(separator: ", ")
-        run("martin.play('\(nudge.rawValue)', { late: \(late), session: \(session), counts: { \(countsJSON) } })")
+        let data = (try? JSONSerialization.data(withJSONObject: options)) ?? Data("{}".utf8)
+        let json = String(data: data, encoding: .utf8) ?? "{}"
+        run("martin.play('\(nudge.rawValue)', \(json))")
     }
 
     /// For testing: saves a picture of the card (open Martin.app --args --nudge walk --snapshot /tmp/martin).
@@ -114,7 +115,7 @@ final class CardWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         let cardWidth = notch > 0 ? notch + 60 : 250
         let width = cardWidth + 70
-        let height: CGFloat = 170
+        let height: CGFloat = 200
         let menuBar = screen.frame.maxY - screen.visibleFrame.maxY
         let top = screen.frame.maxY - (menuBar > 0 ? menuBar : 32)
         panel.setFrame(NSRect(x: screen.frame.midX - width / 2, y: top - height, width: width, height: height), display: true)

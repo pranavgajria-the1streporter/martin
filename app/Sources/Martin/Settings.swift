@@ -47,6 +47,33 @@ private struct NudgeRow: View {
     }
 }
 
+/// Martin dresses for the weather if you tell him where you are.
+private struct LookRows: View {
+    @AppStorage("weather.on") private var weatherOn = false
+    @AppStorage("weather.city") private var city = ""
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("Dress for the weather")
+                .foregroundStyle(weatherOn ? .primary : .secondary)
+            Spacer(minLength: 0)
+            TextField("City", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 140)
+                .disabled(!weatherOn)
+                .onSubmit { city = draft }
+                .onAppear { draft = city }
+            Toggle("Dress for the weather", isOn: $weatherOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        // Save the city as it's typed, so closing the window without pressing Return still keeps it.
+        .onChange(of: draft) { city = $0 }
+    }
+}
+
 private struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -55,13 +82,19 @@ private struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             ForEach(Nudge.allCases, id: \.self) { NudgeRow($0) }
-            Text("A walk starts every timer over. A stretch resets the smaller ones.")
+            Text("A walk starts every timer over. Water runs on the clock.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Divider()
+            LookRows()
+            Text("Weather comes from Open-Meteo. Only the city name leaves your Mac.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(width: 400)
         .fixedSize()
     }
 }

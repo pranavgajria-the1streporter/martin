@@ -3,12 +3,14 @@ import AVFoundation
 import ServiceManagement
 
 enum Nudge: String, CaseIterable {
-    case posture, situp, stretch, walk
+    case posture, situp, eyes, water, stretch, walk
 
     var name: String {
         switch self {
         case .posture: return "Posture check"
         case .situp: return "Sit up"
+        case .eyes: return "Rest your eyes"
+        case .water: return "Water"
         case .stretch: return "Stretch"
         case .walk: return "Walk"
         }
@@ -19,6 +21,8 @@ enum Nudge: String, CaseIterable {
         switch self {
         case .posture: words = ("posture check", "posture checks")
         case .situp: words = ("sit-up", "sit-ups")
+        case .eyes: words = ("eye break", "eye breaks")
+        case .water: words = ("glass of water", "glasses of water")
         case .stretch: words = ("stretch", "stretches")
         case .walk: words = ("walk", "walks")
         }
@@ -30,6 +34,8 @@ enum Nudge: String, CaseIterable {
         switch self {
         case .posture: return 10
         case .situp: return 25
+        case .eyes: return 20
+        case .water: return 60
         case .stretch: return 50
         case .walk: return 90
         }
@@ -38,12 +44,17 @@ enum Nudge: String, CaseIterable {
     /// When a bigger nudge fires, the smaller ones it covers start over.
     var covers: [Nudge] {
         switch self {
-        case .walk: return Nudge.allCases
+        case .walk: return Nudge.allCases.filter { $0 != .water }
         case .stretch: return [.stretch, .situp, .posture]
+        case .eyes: return [.eyes, .posture]
         case .situp: return [.situp, .posture]
         case .posture: return [.posture]
+        case .water: return [.water]
         }
     }
+
+    /// Water runs on the clock: a break away from the Mac doesn't mean you drank anything.
+    var countsBreaks: Bool { self == .water }
 }
 
 @MainActor
@@ -51,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     let card = CardWindow()
     private let settings = SettingsWindow()
+    private let weather = Weather()
     private var statusItem: NSStatusItem!
     private var seated: [Nudge: TimeInterval] = [:]
     private var showing: Nudge?
@@ -81,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Nudge.allCases.forEach { seated[$0] = 0 }
+        weather.refreshIfStale()
 
         // Without this, macOS naps a menu bar app with no windows and stretches its 10 second timer into minutes,
         // which makes every nudge arrive late.
@@ -157,6 +170,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             card.hide()
         }
 
+        // Water keeps counting while you're away from the keyboard.
+        seated[.water, default: 0] += elapsed
+        weather.refreshIfStale()
+
         let idle = Quiet.idleSeconds()
         if idle >= breakSeconds {
             if !onBreak {
@@ -178,14 +195,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             micSince = nil
         }
 
-        for n in Nudge.allCases { seated[n, default: 0] += elapsed }
+        for n in Nudge.allCases where !n.countsBreaks { seated[n, default: 0] += elapsed }
 
         if ticks % 30 == 0 {
             let minutes = Nudge.allCases.map { "\($0.rawValue) \(Int(seated[$0, default: 0] / 60))m" }.joined(separator: ", ")
             Log.write("alive: seated \(minutes), idle \(Int(idle))s, card window drawn \(card.isDrawn ? "yes" : "NO")")
         }
 
-        guard let due = [Nudge.walk, .stretch, .situp, .posture].first(where: { isOn($0) && seated[$0, default: 0] >= interval($0) }) else { return }
+        guard let due = [Nudge.walk, .stretch, .eyes, .water, .situp, .posture].first(where: { isOn($0) && seated[$0, default: 0] >= interval($0) }) else { return }
         if showing != nil { return }
         if let retry = retryAfter, now < retry { return }
         if let reason = quietReason() {
@@ -200,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func restart() {
-        Nudge.allCases.forEach { seated[$0] = 0 }
+        Nudge.allCases.filter { !$0.countsBreaks }.forEach { seated[$0] = 0 }
         lastTick = Date()
     }
 
@@ -244,7 +261,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var counts: [String: Int] = [:]
         for k in Nudge.allCases { counts[k.rawValue] = tally()[k.rawValue] ?? 0 }
         let id = session
-        card.show(n, late: hour >= 22 || hour < 6, counts: counts, session: id)
+        var options: [String: Any] = [
+            "late": hour >= 22 || hour < 6,
+            "session": id,
+            "counts": counts,
+            "next": Int(interval(n) / 60),
+        ]
+        if weather.isOn, let w = weather.now {
+            options["weather"] = ["kind": w.kind, "temp": w.temp, "day": w.day]
+        }
+        card.show(n, options: options)
         DispatchQueue.main.asyncAfter(deadline: .now() + confirmSeconds) { [weak self] in
             guard let self, self.session == id, !self.shown else { return }
             if attempt == 1 {
@@ -315,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return c > 0 ? n.counted(c) : nil
         }
         menu.addItem(info(done.isEmpty ? "Today: nothing yet" : "Today: " + done.joined(separator: ", ")))
+        if let line = weather.menuLine { menu.addItem(info(line)) }
         if let reason = quietReason() {
             menu.addItem(info(reason))
         } else if !Nudge.allCases.contains(where: isOn) {

@@ -11,6 +11,9 @@ I built him with Claude Code in October 2026, during Code for Creatives cohort 4
 - **Posture check** every 10 minutes and **sit up** every 25. These fade on their own after 8 seconds.
 - **Stretch** every 50 minutes: Martin does neck rolls with you while a 30 second countdown runs.
 - **Walk** every 90 minutes, with a one minute countdown. After 22:00 the walk becomes a minute on your feet.
+- **Rest your eyes** every 20 minutes: the 20-20-20 rule. Martin shades his eyes and looks into the distance while a 20 second countdown runs.
+- **Water** every hour. Martin drinks a glass with you; press Drank it to count it. Water runs on the clock, so a break away from the Mac doesn't reset it.
+- **Dress for the weather** (off until you switch it on in Settings and type your city): a beanie when it's freezing, sunglasses on a sunny day, rain or snow falling on his card, and lines to match.
 - Stretch and walk wait for you to press Done, Snooze 10 min or Skip. Done plays a soft ding. Snooze sends him walking off the edge of the card.
 - Five minutes away from the keyboard counts as a break, and every timer starts over. A walk resets everything; a stretch resets the smaller nudges.
 - He stays quiet while your camera is on, while your mic has been on for two minutes (so a call silences him and dictation doesn't), on weekends unless you turn them on, and when you switch on Do not disturb or pause him for an hour.
@@ -54,7 +57,7 @@ Open Terminal and run these one at a time. Or paste this README into Claude Code
 
 His face appears in the menu bar near the clock. To see him straight away, click his face and choose **Nudge me now**. To have him start every time you log in, click his face and tick **Start at login**.
 
-Martin asks for no permissions. He reads how long it's been since you touched the keyboard or mouse, and whether any app is using the camera or mic. He never records anything, and nothing leaves your Mac.
+Martin asks for no permissions. He reads how long it's been since you touched the keyboard or mouse, and whether any app is using the camera or mic. He never records anything. The one thing that ever leaves your Mac is your city name, and only if you switch on the weather: it goes to [Open-Meteo](https://open-meteo.com), a free weather service with no account.
 
 **Can't see his face?** On a MacBook with a notch, menu bar icons that don't fit hide behind it. Quit an icon or two you don't use, or hold Cmd and drag Martin's face to a new spot.
 

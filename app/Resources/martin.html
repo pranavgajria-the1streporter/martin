@@ -21,11 +21,11 @@ html, body { margin: 0; background: transparent; overflow: hidden; height: 100%;
 button { font: inherit; }
 .card { position: absolute; top: 6px; left: calc(50% - 125px); width: 250px; padding: 10px 12px 10px 8px; border-radius: 16px; background: var(--paper); color: var(--pen); box-shadow: 0 10px 26px rgba(0,0,0,.32), 0 0 0 0.5px rgba(0,0,0,.12); display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 8px; align-items: center; overflow: hidden; visibility: hidden; }
 .text { min-width: 0; }
-.h { display: block; font-family: var(--display); font-weight: 800; font-size: 17px; line-height: 1.15; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.s { display: block; font-size: 11.5px; line-height: 1.4; color: var(--pencil); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h { display: block; font-family: var(--display); font-weight: 800; font-size: 17px; line-height: 1.15; letter-spacing: -0.015em; overflow-wrap: break-word; text-wrap: balance; }
+.s { display: block; font-size: 11.5px; line-height: 1.35; color: var(--pencil); margin-top: 2px; overflow-wrap: break-word; text-wrap: pretty; }
 .count { font-weight: 800; font-size: 24px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; overflow: hidden; padding: 2px 0; }
 .count .num { display: inline-block; }
-.btns { grid-column: 1 / -1; display: flex; gap: 5px; }
+.btns { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 5px; }
 .btns[hidden], .count[hidden] { display: none !important; }
 .btn { font-size: 11px; font-weight: 500; line-height: 1; padding: 6px 9px; border-radius: 999px; cursor: pointer; background: none; color: var(--pen); border: 1px solid var(--pen); white-space: nowrap; transition: transform 160ms var(--out); }
 .btn.main { background: var(--pen); color: var(--paper); }
@@ -36,6 +36,15 @@ button { font: inherit; }
 .martin .eye, .martin .fist { fill: var(--pen); stroke: none; }
 .martin .thumbline { stroke-width: 3.2; }
 .martin .mouth { stroke-width: 2.8; }
+.martin .water { fill: #A9CBEA; stroke: none; }
+.martin .ink { fill: var(--pen); stroke: var(--pen); stroke-width: 1.6; }
+.martin .wear { display: none; }
+.martin .wear.on { display: inline; }
+.text, .count, .btns, .martin { position: relative; }
+.sky { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.sky i { position: absolute; top: -10px; display: block; background: var(--pencil); }
+.sky.rain i { width: 1px; height: 7px; opacity: .3; border-radius: 1px; }
+.sky.snow i { width: 3px; height: 3px; opacity: .32; border-radius: 50%; }
 </style>
 </head>
 <body>
@@ -84,16 +93,36 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
   };
 
   var COPY = {
-    posture: [['Shoulders back.', 'Ten seconds. I’ll wait.'], ['Uncurl a bit.', 'You’re not a croissant.'], ['Chin in.', 'Like a proud pigeon.'], ['Posture check.', 'Doing great. Mostly.']],
-    situp:   [['Sit up tall.', 'Like someone said your name.'], ['Hey. Spine.', 'I’m not mad, just noticing.'], ['Up you come.', 'Feet flat, sit back.'], ['Spine check.', '25 minutes of leaning in.']],
-    stretch: [['Neck rolls.', 'Slow circles with me.'], ['Roll with me.', 'Ear down, then round.']],
-    walk:    [['Walk with me?', 'Window and back.'], ['Legs, remember?', 'They miss you.'], ['Lap time.', 'Kitchen, water, back.']]
+    posture: [['Shoulders back.', 'Ten seconds. I’ll wait.'], ['Uncurl a bit.', 'You’re not a croissant.'], ['Chin in.', 'Like a proud pigeon.'], ['Unclench your jaw.', 'And drop those shoulders.'], ['Posture check.', 'Doing great. Mostly.'], ['Quick scan.', 'Feet, back, shoulders, chin.']],
+    situp:   [['Sit up tall.', 'Like someone said your name.'], ['Hey. Spine.', 'I’m not mad, just noticing.'], ['Up you come.', 'Feet flat, sit back.'], ['Sit back.', 'Let the chair do some work.'], ['Spine check.', '25 minutes of leaning in.']],
+    eyes:    [['Rest your eyes.', 'Look far away.'], ['Eyes up.', 'Find the farthest thing.'], ['Screen break.', 'Look out the window.'], ['Blink a few times.', 'Then find the horizon.']],
+    water:   [['Water time.', 'One full glass.'], ['Glass of water?', 'I’ll have one too.'], ['Sip sip.', 'Your brain will thank you.'], ['Refill?', 'The kitchen misses you.']],
+    stretch: [['Neck rolls.', 'Slow circles with me.'], ['Roll with me.', 'Ear down, then round.'], ['Loosen up.', 'Neck first, slowly.']],
+    walk:    [['Walk with me?', 'Window and back.'], ['Legs, remember?', 'They miss you.'], ['Lap time.', 'Kitchen, water, back.'], ['Stretch the legs.', 'I’ll come too.']]
   };
-  var DONE = [['thumb', 'Nice one.'], ['jump', 'Look at you!'], ['cheer', 'Beautiful.']];
+  /* Lines for the weather, used about half the time when they fit */
+  function weatherLine(n, w) {
+    if (!w) return null;
+    var cold = w.temp <= 5, hot = w.temp >= 24, wet = w.kind === 'rain' || w.kind === 'storm', pool = [];
+    if (n === 'walk') {
+      if (wet) pool.push(['Rainy out.', 'Hallway laps count.']);
+      if (w.kind === 'snow') pool.push(['It’s snowing!', 'Go look. One minute.']);
+      if (cold) pool.push(['Brr. Walk anyway?', 'Coat, or hallway laps.']);
+      if (w.kind === 'clear' && w.day) pool.push(['Sun’s out.', 'Go say hello to it.']);
+    }
+    if (n === 'water') {
+      if (hot) pool.push(['Hot one today.', 'Make it a big glass.']);
+      if (cold) pool.push(['Cold out.', 'Tea counts. Mostly.']);
+    }
+    if (n === 'eyes' && w.day && (w.kind === 'clear' || w.kind === 'snow')) pool.push(['Look outside.', 'Find the farthest tree.']);
+    if (n === 'stretch' && cold) pool.push(['Cold shoulders?', 'Roll them warm.']);
+    if (n === 'posture' && wet) pool.push(['Rainy day slump?', 'Sit up, it helps.']);
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  }
+  var DONE = [['thumb', 'Nice one.'], ['jump', 'Look at you!'], ['dance', 'That’s the stuff.'], ['cheer', 'Beautiful.']];
   var SKIP = [['sad', 'Oh. Okay.', 'I’ll ask again in '], ['scratch', 'Hm. Later then?', 'Next one in '], ['shrug', 'Fair enough.', 'Next one in ']];
   var SNOOZE = [['Back in 10.', 'I’ll be right here.'], ['Fine. 10 minutes.', 'I’m counting.']];
-  var NAMES = { posture: ['posture check', 'posture checks'], situp: ['sit-up', 'sit-ups'], stretch: ['stretch', 'stretches'], walk: ['walk', 'walks'] };
-  var NEXT = { stretch: 50, walk: 90 };
+  var NAMES = { posture: ['posture check', 'posture checks'], situp: ['sit-up', 'sit-ups'], eyes: ['eye break', 'eye breaks'], water: ['glass of water', 'glasses of water'], stretch: ['stretch', 'stretches'], walk: ['walk', 'walks'] };
   function plural(n, k) { return n + ' ' + NAMES[k][n === 1 ? 0 : 1]; }
 
   /* The arms, for reaching a point with the hand */
@@ -121,25 +150,29 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
         '<g class="j torso" style="transform-origin:50px 92px">' +
           '<line x1="50" y1="92" x2="50" y2="40"/>' +
           '<g class="j armL" style="transform-origin:50px 54px"><line x1="50" y1="54" x2="37" y2="73"/><g class="j foreL" style="transform-origin:37px 73px"><line x1="37" y1="73" x2="33" y2="94"/><circle class="fist fistL" cx="33" cy="94" r="3.3" style="opacity:0"/></g></g>' +
-          '<g class="j armR" style="transform-origin:50px 54px"><line x1="50" y1="54" x2="63" y2="73"/><g class="j foreR" style="transform-origin:63px 73px"><line x1="63" y1="73" x2="67" y2="94"/><circle class="fist fistR" cx="67" cy="94" r="3.8" style="opacity:0"/><g class="j thumb" style="transform-origin:67px 94px;opacity:0"><line class="thumbline" x1="65.6" y1="91.2" x2="65.6" y2="85.6"/></g></g></g>' +
+          '<g class="j armR" style="transform-origin:50px 54px"><line x1="50" y1="54" x2="63" y2="73"/><g class="j foreR" style="transform-origin:63px 73px"><line x1="63" y1="73" x2="67" y2="94"/><circle class="fist fistR" cx="67" cy="94" r="3.8" style="opacity:0"/><g class="j thumb" style="transform-origin:67px 94px;opacity:0"><line class="thumbline" x1="65.6" y1="91.2" x2="65.6" y2="85.6"/></g>' +
+            '<g class="j glass" style="transform-origin:67px 94px;opacity:0"><path class="water" d="M61.6 90.5 L72.4 90.5 L71 103 L63 103 Z"/><path d="M60.5 84 L62.6 103.5 L71.4 103.5 L73.5 84" style="stroke-width:2.4"/></g>' +
+          '</g></g>' +
           '<g class="j head" style="transform-origin:50px 40px">' +
             '<circle cx="50" cy="26" r="14"/>' +
             '<g class="j feat" style="transform-origin:50px 26px">' +
               '<g class="j eyes" style="transform-origin:50px 25px"><g class="j lid" style="transform-origin:50px 25px"><circle class="eye" cx="45.5" cy="25" r="1.9"/><circle class="eye" cx="54.5" cy="25" r="1.9"/></g></g>' +
               '<path class="mouth" d="' + MOUTH.smile + '"/>' +
+              '<g class="wear shades"><rect class="ink" x="40.5" y="21.5" width="8.5" height="6" rx="2.2"/><rect class="ink" x="51" y="21.5" width="8.5" height="6" rx="2.2"/><line x1="49" y1="23.5" x2="51" y2="23.5" style="stroke-width:1.6"/></g>' +
             '</g>' +
+            '<g class="wear beanie"><path class="ink" d="M36.6 20.5 Q37 8 50 8 Q63 8 63.4 20.5 Z"/><line x1="35.5" y1="20.5" x2="64.5" y2="20.5" style="stroke-width:4.4"/><circle class="ink" cx="50" cy="5.6" r="3.2"/></g>' +
           '</g>' +
         '</g>' +
       '</g></g></g></g></svg>';
   }
 
   /* Each part lands a beat after the part it hangs from */
-  var LAG = { torso: 0, legL: 0, legR: 0, armL: 35, armR: 35, shinL: 30, shinR: 30, head: 45, foreL: 70, foreR: 70, feat: 70, eyes: 80, thumb: 90 };
+  var LAG = { torso: 0, legL: 0, legR: 0, armL: 35, armR: 35, shinL: 30, shinR: 30, head: 45, foreL: 70, foreR: 70, feat: 70, eyes: 80, thumb: 90, glass: 90 };
 
   function Martin(host) {
     host.insertAdjacentHTML('afterbegin', rig());
     var svg = this.svg = host.querySelector('svg'), p = this.p = {};
-    ['face', 'move', 'bob', 'breath', 'legL', 'shinL', 'legR', 'shinR', 'torso', 'armL', 'foreL', 'armR', 'foreR', 'thumb', 'head', 'feat', 'eyes', 'lid'].forEach(function (k) { p[k] = svg.querySelector('.' + k); });
+    ['face', 'move', 'bob', 'breath', 'legL', 'shinL', 'legR', 'shinR', 'torso', 'armL', 'foreL', 'armR', 'foreR', 'thumb', 'glass', 'head', 'feat', 'eyes', 'lid'].forEach(function (k) { p[k] = svg.querySelector('.' + k); });
     this.fistL = svg.querySelector('.fistL'); this.fistR = svg.querySelector('.fistR');
     this.mouth = svg.querySelector('.mouth');
     this.loops = [];
@@ -202,9 +235,18 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
       p[k].getAnimations().forEach(function (a) { a.cancel(); });
       p[k].style.transform = '';
     });
-    [this.fistL, this.fistR, this.p.thumb].forEach(function (el) { el.getAnimations().forEach(function (a) { a.cancel(); }); el.style.opacity = 0; });
+    [this.fistL, this.fistR, this.p.thumb, this.p.glass].forEach(function (el) { el.getAnimations().forEach(function (a) { a.cancel(); }); el.style.opacity = 0; });
     this.closed = false;
     this.face('smile');
+  };
+  /* What he wears for the weather: a beanie when it's freezing, sunglasses in the sun */
+  Martin.prototype.dress = function (w) {
+    var svg = this.svg;
+    var on = {
+      beanie: !!(w && w.temp <= 2),
+      shades: !!(w && w.kind === 'clear' && w.day && w.temp >= 16)
+    };
+    Object.keys(on).forEach(function (k) { svg.querySelector('.' + k).classList.toggle('on', on[k]); });
   };
   Martin.prototype.rest = function (spec) {
     return this.pose({ move: 'none', bob: 'none', feat: 'none', legL: 0, shinL: 0, legR: 0, shinR: 0, torso: 0, armL: 0, foreL: 0, armR: 0, foreR: 0, head: 0 }, spec || 220, 0.5);
@@ -242,7 +284,19 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     await settled(this.to('bob', 'none', BOUNCE));
   };
   Martin.prototype.act = async function (nudge) {
-    if (nudge === 'posture') {
+    if (nudge === 'posture' && Math.random() < 0.5) {
+      /* Two shoulder shrugs, then settle tall */
+      this.face('calm');
+      for (var i = 0; i < 2; i++) {
+        await this.pose({ armL: -7, armR: 7, bob: 'translateY(-2.5px)' }, 220, 0);
+        await this.pose({ armL: 4, armR: -4, bob: 'none' }, 260, 0);
+      }
+      this.face('happy');
+      await this.pose({ armL: 0, armR: 0, torso: -3, head: -4 }, LOOSE);
+      await wait(800);
+      this.pose({ torso: 0, head: 0 });
+      this.face('smile');
+    } else if (nudge === 'posture') {
       this.face('calm');
       await this.pose({ torso: -4, head: -6, armL: 8, armR: -8 });
       this.face('happy');
@@ -268,6 +322,35 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
       if (reduce) { this.pose({ head: -12 }, 0); return; }
       this.loop('head', [{ transform: 'rotate(0deg)' }, { transform: 'rotate(-22deg)' }, { transform: 'rotate(0deg)' }, { transform: 'rotate(22deg)' }, { transform: 'rotate(0deg)' }], 4400, { easing: 'ease-in-out' });
       this.loop('torso', [{ transform: 'rotate(0deg)' }, { transform: 'rotate(-2deg)' }, { transform: 'rotate(0deg)' }, { transform: 'rotate(2deg)' }, { transform: 'rotate(0deg)' }], 4400, { easing: 'ease-in-out', delay: -300 });
+    } else if (nudge === 'eyes') {
+      /* Hand up to shade his eyes, then he scans the far distance */
+      this.face('calm');
+      this.look('side');
+      var brow = reach('R', 63, 15, 1);
+      await this.pose({ armR: brow.u, foreR: brow.f, head: 5, torso: 2 });
+      this.loop('eyes', [
+        { transform: 'translate(2.4px,0px)' }, { transform: 'translate(2.4px,0px)' },
+        { transform: 'translate(-2.2px,-0.6px)' }, { transform: 'translate(-2.2px,-0.6px)' },
+        { transform: 'translate(2.4px,0px)' }
+      ], 6400, { easing: 'ease-in-out' });
+      this.loop('head', [{ transform: rot(5) }, { transform: rot(5) }, { transform: rot(-4) }, { transform: rot(-4) }, { transform: rot(5) }], 6400, { easing: 'ease-in-out' });
+    } else if (nudge === 'water') {
+      /* A glass of water: up to the mouth, three sips, then a happy sigh */
+      this.face('smile');
+      this.p.glass.style.opacity = 1;
+      var cup = reach('R', 65, 33, 1);
+      await this.pose({ armR: cup.u, foreR: cup.f, glass: rot(-cup.total - 24), head: 6 });
+      this.face('flat');
+      this.look('closed', 160);
+      for (var s = 0; s < 3; s++) {
+        await settled(this.to('bob', 'translateY(-1.6px)', 170));
+        await settled(this.to('bob', 'none', 170));
+      }
+      this.look('open');
+      this.face('happy');
+      await this.pose({ head: 0, armR: 0, foreR: 0, glass: 'none' }, 260);
+      await wait(700);
+      this.face('smile');
     } else if (nudge === 'walk') {
       this.face('think');
       this.look('up');
@@ -305,6 +388,17 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
       await settled(this.to('bob', 'translateY(0px)', { duration: 240, easing: 'cubic-bezier(0.55, 0, 0.9, 0.5)' }));
       this.pose({ legL: 0, shinL: 0, legR: 0, shinR: 0, head: 0 }, BOUNCE, 0);
       this.p.breath.animate([{ transform: 'scaleY(0.86)' }, { transform: 'scaleY(1)' }], { duration: reduce ? 0 : BOUNCE.duration, easing: BOUNCE.easing, composite: 'add' });
+    } else if (kind === 'dance') {
+      var dl = reach('L', 30, 20, -1), dr = reach('R', 70, 20, 1);
+      this.fists(true, true, false);
+      for (var d = 0; d < 3; d++) {
+        this.pose({ armL: dl.u, foreL: dl.f, armR: 12, foreR: 0, torso: -6, head: -8, legL: -6, legR: -6 }, 210, 0.3);
+        await settled(this.to('bob', 'translateY(-3px)', 210));
+        this.pose({ armR: dr.u, foreR: dr.f, armL: -12, foreL: 0, torso: 6, head: 8, legL: 6, legR: 6 }, 210, 0.3);
+        await settled(this.to('bob', 'none', 210));
+      }
+      this.fists(false, false, false);
+      await this.pose({ torso: 0, head: 0, armL: 0, armR: 0, foreL: 0, foreR: 0, legL: 0, legR: 0 }, LOOSE, 0.3);
     } else {
       var l = reach('L', 30, 22, -1), rr = reach('R', 70, 22, 1);
       this.fists(true, true, false);
@@ -361,10 +455,11 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
   function post(m) { try { window.webkit.messageHandlers.martin.postMessage(m); } catch (e) {} }
 
   var LATE_WALK = [['Up for a minute?', 'Too late for a walk.'], ['Stand with me.', 'One minute on your feet.']];
-  var turn = { posture: 0, situp: 0, stretch: 0, walk: 0, late: 0, done: 0, skip: 0, snooze: 0 };
+  var turn = { posture: 0, situp: 0, eyes: 0, water: 0, stretch: 0, walk: 0, late: 0, done: 0, skip: 0, snooze: 0 };
 
   var card = document.querySelector('.card');
   card.innerHTML =
+    '<div class="sky"></div>' +
     '<div class="text"><span class="h"></span><span class="s"></span></div>' +
     '<span class="count" hidden><span class="num"></span></span>' +
     '<div class="btns" hidden>' +
@@ -374,7 +469,27 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     '</div>';
   var martin = new Martin(card);
   var H = card.querySelector('.h'), S = card.querySelector('.s'), COUNT = card.querySelector('.count'), NUM = card.querySelector('.num'), BTNS = card.querySelector('.btns');
-  var state = { open: false, token: 0, timers: [], nudge: null, counts: {}, session: 0 };
+  var MAIN = card.querySelector('.btn.main'), SKY = card.querySelector('.sky');
+  var state = { open: false, token: 0, timers: [], nudge: null, counts: {}, session: 0, next: 0 };
+
+  /* Rain or snow falling behind Martin while the card is up */
+  function sky(w) {
+    SKY.innerHTML = '';
+    SKY.className = 'sky';
+    if (!w || reduce) return;
+    var kind = w.kind === 'storm' ? 'rain' : w.kind;
+    if (kind !== 'rain' && kind !== 'snow') return;
+    SKY.classList.add(kind);
+    var n = kind === 'rain' ? 14 : 10, h = 120;
+    for (var i = 0; i < n; i++) {
+      var d = document.createElement('i');
+      d.style.left = (Math.random() * 100).toFixed(1) + '%';
+      SKY.appendChild(d);
+      var dur = kind === 'rain' ? 650 + Math.random() * 350 : 3200 + Math.random() * 1800;
+      var drift = kind === 'rain' ? -6 : (Math.random() * 16 - 8);
+      d.animate([{ transform: 'translate(0,0)' }, { transform: 'translate(' + drift + 'px,' + h + 'px)' }], { duration: dur, iterations: Infinity, delay: -Math.random() * dur, easing: 'linear' });
+    }
+  }
 
   function clear() { state.timers.forEach(function (t) { clearTimeout(t); clearInterval(t); }); state.timers = []; }
   function say(h, s) {
@@ -399,7 +514,7 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     var session = state.session;
     var h = card.offsetHeight + 12;
     await settled(card.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-' + h + 'px)', opacity: 0.6 }], { duration: reduce ? 100 : 240, easing: OUT, fill: 'forwards' }));
-    if (!state.open) { card.style.visibility = 'hidden'; if (!silent) post({ type: 'closed', session: session }); }
+    if (!state.open) { card.style.visibility = 'hidden'; sky(null); if (!silent) post({ type: 'closed', session: session }); }
   }
 
   async function play(nudge, opts) {
@@ -409,16 +524,22 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
     state.session = opts.session || 0;
     state.nudge = nudge;
     state.counts = opts.counts || {};
-    var list = nudge === 'walk' && opts.late ? LATE_WALK : COPY[nudge];
-    var key = nudge === 'walk' && opts.late ? 'late' : nudge;
-    var c = list[turn[key]++ % list.length];
+    state.next = opts.next || 0;
+    var late = nudge === 'walk' && opts.late;
+    var list = late ? LATE_WALK : COPY[nudge];
+    var key = late ? 'late' : nudge;
+    var wl = late ? null : weatherLine(nudge, opts.weather);
+    var c = wl && Math.random() < 0.5 ? wl : list[turn[key]++ % list.length];
     H.textContent = c[0]; S.textContent = c[1];
-    var held = nudge === 'stretch' || nudge === 'walk';
-    var secs = { stretch: 30, walk: 60 }[nudge];
+    var held = nudge === 'stretch' || nudge === 'walk' || nudge === 'eyes' || nudge === 'water';
+    var secs = { stretch: 30, walk: 60, eyes: 20 }[nudge];
     BTNS.hidden = !held;
-    COUNT.hidden = !held;
-    if (held) setCount(secs);
+    COUNT.hidden = !secs;
+    MAIN.textContent = nudge === 'water' ? 'Drank it' : 'Done';
+    if (secs) setCount(secs);
     martin.prep(nudge);
+    martin.dress(opts.weather);
+    sky(opts.weather);
     state.open = true;
     await enter();
     if (t !== state.token) return;
@@ -432,6 +553,12 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
         post({ type: 'counted', nudge: nudge, session: state.session });
         close();
       }, 8000));
+    } else if (!secs) {
+      /* Water waits for an answer for a minute, then leaves quietly without counting */
+      state.timers.push(setTimeout(function () {
+        if (t !== state.token) return;
+        close();
+      }, 60000));
     } else {
       var left = secs;
       state.timers.push(setInterval(function () {
@@ -462,7 +589,7 @@ window.onerror = function (m, src, line) { try { window.webkit.messageHandlers.m
       await wait(350);
     } else {
       var k = SKIP[turn.skip++ % SKIP.length];
-      say(k[1], k[2] + NEXT[n] + ' min.');
+      say(k[1], state.next ? k[2] + state.next + ' min.' : 'See you soon.');
       await martin.skip(k[0]);
       await wait(1500);
     }
